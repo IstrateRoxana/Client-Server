@@ -1,0 +1,128 @@
+* PC, Tema1 *
+
+Compilare: make
+Pornire + verificare transfer: ./run_experiment.sh
+
+Unităti de măsură pentru parametrii din script:
+	* SPEED: Mb/s
+	* DELAY: ms
+	* LOSS: procentaj cadre pierdute
+	* CORRUPT: procentaj cadre corupte
+
+Domeniu de valori:
+	* SPEED = 5 .. 20 Mb/s
+	* DELAY = 10 ... 1000 ms
+	* LOSS = 0 ... 10 %
+	* CORRUPT = 0 .. 10% / 100 %
+	* TASK_INDEX = 0, 1, 2, 3 și 4
+	
+	***	Detalii implementare	***
+	
+	OBSERVATII:
+	
+	** am considerat ca numarul de cadre este >= window_size, netratand 
+	separat cazul in care se trimit mai putin de window_size pachete, desi
+	in mod normal nu ar trebui sa existe diferente din moement ce si
+	senderul si receiverul se opresc cand primesc ultimul pachet.
+	** informatia despre numarul de pachete este trimisa in mesajul de 
+	stabilire a legaturii, la inceputul programului
+	
+	Detalii comune fiecarui task:
+	
+	** la inceput, senderul trimite receiverului un pachet special, cu 
+	informatii referitoare la window_size, numele fisierului de output,
+	numarul de cadre ce vor fi receptionate.
+	
+	Primul task doreste implementarea unui protocol cu fereastra glisanta.
+	Implementarea mea este urmatoarea:
+	
+	* initial sunt trimise window_size cadre fara a se astepta confimare, 
+	apoi la fiecare confirmare primita, este incarcat in legatura de date 
+	alt cadru pana cand nu mai sunt cadre de citit din fisier
+	* se astepata primirea ultimelor window_size confirmari de la receiver
+	dupa care se incheie algoritmul
+	
+	Al doilea task doreste implementarea unui protocol de tip Go Back N.
+	Acest algoritm este reprezentat in demo-ul urmator:
+	
+	http://www.eecis.udel.edu/~amer/450/TransportApplets/GBN/GBNindex.html
+	
+	* initial se trimit window_size cadre (pe care senderul le retine intr-un
+	buffer pentru a evita recitirea lor din fisier in momentul in care un 
+	cadru a fost pierdut)
+	* dupa fiecare confirmare asteptata senderul isi muta fereastra ( mai 
+	trimite un cadru, pe care il citeste din fisier )
+	* deoarece receiverul nu trimite NACK, daca un pachet este pierdut, dar
+	dupa acesta urmeaza alte window_size-1 pachete, senderul neputand
+	sa-si mute fereastra pentru ca nu a primit confirmarea primului pachet 
+	din buffer, dupa ce intra in timeout este nevoit sa retrimita intreaga 
+	fereastra, desi unele pachete au fost receptionate corect(poate).
+	* receiverul daca primeste un pachet pe care nu-l astepta, pur si simplu 
+	il arunca. 
+	** o alta implementare, mai rapida, dar imi era teama ca nu corespunde 
+	cu protocolul Go Back N, era trimiterea de NACK senderului, in momentul 
+	in care nu s-a primit pachetul asteptat. In acest caz, senderul nu 
+	trimitea intreaga fereastra pentru ca mai apoi sa realizeze ca nu 
+	a fost de niciun folos, si acum trebuie sa o retrimita din cauza unui
+	singur pachet (cel putin).
+	
+	Al treilea task cerea implementarea unui protocol de tipul Selective 
+	Repeat, in care eu am considerat ca Senderul si Receiverul au ferestre
+	de dimensiune egala.
+	
+	Acest algoritm este reprezentat in demo-ul urmator:
+	
+	http://www.eecis.udel.edu/~amer/450/TransportApplets/SR/SRindex.html
+	
+	* intial se trimit window_size cadre neconfirmate, si pe langa bufferul
+	in care senderul retine pachetele trimise si neconfirmate, mai retin si 
+	un alt vector, tot de dimensiune window_size, aflat in corespondenta cu 
+	bufferul. Daca un pachet aflat in buffer[i] este trimis, dar inca nu 
+	s-a primit confirmare pentru el, vectorul asociat, denumit mirror
+	seteaza la pozitia i, valoarea -1. Daca se primeste o confirmare pentru
+	pachetul din buffer[i], mirror[i]  este setat pe 1, pentru a evita 
+	retrimiterea lui, in cazul unui timeout(la time-out, din buffer se 
+	trimit doar pachetele cu mirror[pachet] == -1).
+	* in mod asemanator, receiverul retine in buffer pachetele primite, si 
+	seteaza mirror[pachet_primit] = 1;
+	* daca pachetul primit de receiver este cel asteptat, il scrie direct in
+	fisier, insa nu singur, ci si pe celelate pachete (daca sunt) care urmeaza
+	in ordinea data de next_frame_to_send (retinut in ultimii 4 bytes ai
+	campului payload din mesaj), dupa care se reactualizeaza expected_ack.
+	* in pasul de initializare a legaturii au fost trimise: window_size-ul,
+	numele fisierului de output si numarul de pachete ce vor fi receptionate
+	astfel, transmisia se opreste in momentul in care atat senderul cat si 
+	receiverul au primit ultimul pachet asteptat, respectiv ultima confirmare
+	asteptata.
+	
+	Al patrulea task, este identic cu cel de-al treilea cu o mica exceptie.
+	Campul payload al mesajului, nu contine doar numarul de ordine al pachetu
+	lui ci si un checksum. Care este realizat dupa modelul urmator:
+	
+	
+		1001 0011
+		1010 0111
+		0000 0000
+		1111 1011
+		__________ + (bit cu bit fara transport)
+		1100 1111 -- reprezinta check-sum-ul, pus pe un octet la finalul
+			     campului payload din mesaj
+			     
+	La receptie, se va reface check-sum-ul, iar daca va coincide cu cel primit
+	=> cadrul nu este corupt si este scris in fisier. Daca difera, cadrul este
+	corupt =>  este aruncat. Senderul considera ca acest cadru, care ajunge 
+	corupt, este de fapt neprimit, deoarece receiverul nu intoarce ACK pentru el.
+	
+	BONUS:
+	
+	Utilizand metoda Hamming de corectare in rafala prezentata in cartea lui
+	Tanenbaum, se realizeaza detectia si corectarea erorilor.
+	Din fisier nu se vor citi MSGSIZE octeti, deoarece, pentru MSGSIZE octeti 
+	sunt necesari 11 octeti pentru bitii de paritate, plus inca 4 bytes pentru
+	numarul de ordine. Payload-ul va contine 1385 bytes cu informatie extrasa
+	din fisier, 4 bytes pentru numarul de ordine si alti 11 pentru byets de 
+	paritate. Privind cei 1389 bytes pe coloana, aplicand Hamming se obtine 
+	corectia unui singur bit. Insa la nivel de pachet se vor corecta 8*1 bit
+	=> un intreg octet.
+	
+	
