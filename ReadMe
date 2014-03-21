@@ -1,0 +1,86 @@
+/* Istrate Roxana 323CA */
+
+****************************************************************************************************
+								Detalii implementare
+****************************************************************************************************
+
+	In cadrul implementarii CLIENTULUI se pot deosebi 7 cazuri principale, si anume urmatoarele 
+	functii:
+	
+	1)listclients: clientul trimite o cerere serverului, care ii intoarce lista tuturor clientilor
+	conectati in acel moment de timp. Aceasta lista este afisata la stdout. Initial, clientul in 
+	multimea de filedescriptori are 3 filedescriptori, cel prin care comunica cu serverul principal,
+	cel prin care primeste comenzi de la stdout si ultimul prin care asculta posibile noi conexiuni.
+	In momentul in care filedescriptorul este 0, inseamna ca s-a primit o comanda de la tastatura,
+	creaza un mesaj corespunzator prin care sa anunte serverul ca are nevoie de lista de clienti,
+	trimite mesajul si primeste de la server intr-un buffer, lista, pe care o afiseaza.
+	Serverul tine o evidenta a clientilor conectati, retinandu-i intr-un vector de structuri, de 
+	dimenisune MAX_CLIENTS (= 10), impreuna cu un match al acestui vector, care contine socketul
+	clientului folosit pentru operatii de send si recv. 
+	
+	Exemplu:
+	
+	details det[MAX_CLIENTS]:
+	0			1			2			3			4		5		6		7		8		9
+	sorin		rox			-			ana			-		-		-		-		-		-
+	127.0.0.1	127.0.0.1				127.0.0.1
+	1098		1099					2000
+
+	int match[MAX_CLIENTS]:
+	
+	0			1			2			3			4		5		6		7		8		9
+	4			5			-1			6			-1		-1		-1		-1		-1		-1
+	
+	2)infoclient <nume_client>: clientul creeaza un mesaj specific acestei comenzi prin care sa 
+	anunte serverul ca este necesar sa cunoasca detalii despre clientul X, apoi trimite mesajul.
+	Dupa primirea informatiei despre clientul X, cauta un loc gol in vectorul de match, pentru a 
+	retine datele despre clientul X, in cazul in care va avea nevoie sa ii tirmita un mesaj, fisier,
+	etc. pentru a nu reinteroga serverul.
+	
+	3)message <nume_client> <mesaj>: clientul verifica daca are deja o conexiune cu clientul X,
+	daca are, creaza pachetul de mesaj si il trimite, altfel, interogheaza serverul pentru a-i afla 
+	portul, il retine in vectorul de match si in cele din urma ii trimite mesajul dorit.
+	Conexiunea stabilita este mentinuta pe tot parcursul rularii programului (sau pana cand unul
+	dintre ei paraseste sesiunea).
+	
+	4)broadcast <mesaj>: asemenator cu comanda message, doar ca este trimis tuturor clientilor 
+	conectati. Initial se trimite serverului comanda listclients, retin clientii intr-un buffer,
+	pentru fiecare client, verific daca am stabilita o conexiune cu el, daca da, trimit mesajul,
+	daca nu, interoghez serverul pentru a-i afla portul, creez conexiunea, salvez datele in vectorul
+	de details si de match si in cele din urmatoarele trimit mesajul (IP ul folosit peste tot
+	este cel de loopback).
+	
+	5)sendfile <nume_client> <nume_fisier>: Clientul care primeste de la tastatura comanda aceasta,
+	verifica daca are deja o conexiune cu clientul X, daca are ii trimite portiuni din fisier,
+	intr-o structura care contine urmatoarele campuri: int first = 1 daca este prima trimitere si 0
+	daca este oricare alta trimitere, to_receive = numarul de octeti ce trebuie primiti, char 
+	sender[len], numele senderului, char file2send[len] numele fisierului de trimis, char 
+	buffer[BUFLEN] datele propriu-zise. Clientul X care primeste datele le salveaza intr-un fisier
+	cu numele "nume_fisier_primit".
+	
+	6)history: foloseste un alt buffer denumit chiat history, unde sunt concatenate 
+	mesajele/fisierele primite.
+	
+	7)quit: Clientul care a primit de la tastatura aceasta comanda paraseste sistemul, inchizand 
+	toate conexiunile existente, si trimite un pachet specific comenzii quit cu mesajul "i will 
+	leave", prin care anunta pe ceilalti clienti cu care era conectat, cat si pe server ca se va 
+	retrage.
+
+	In cadrul implementarii SERVERULUI se pot deosebi 3 cazuri principale, si anume urmatoarele 
+	functii:
+	
+	1)status: este comanda care parcurge vectorul de structri de detalii privind clientii, 
+	si afiseaza la consola numele lor si porturile corespunzatoare.
+	
+	2)kick <nume_client>: elimina din vectorul anterior numit un client, seteaza match[pozitie] la 
+	-1, anunta printr-un mesaj specific clientul ca trebuie sa plece, apoi inchide conexiunea cu el.
+	Clientul care a primit acest mesaj, inchide la randul lui toate conexiunile, anunta toti ceilalti
+	clienti ca se va retrage si se termina programul aferent lui.
+	
+	3)quit: serverul trimite un mesaj fiecarui client cum ca isi va inchide conexiunea, si se termina
+	programul. Clientii care detecteaza acest mesaj, inchid la randul lor toate conexiunile si se 
+	retrag.
+	
+	In rularea programului vor aparea diverse mesaje la consola, nu le-am sters deoarece este mult
+	mai evidenta legatura intre clienti si server, mesajele sunt explicite si evidentiaza ce se 
+	intampla in spatele fiecarei comenzi.
